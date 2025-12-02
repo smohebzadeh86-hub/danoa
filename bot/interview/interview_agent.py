@@ -24,8 +24,6 @@ class InterviewAgent:
     def __init__(self):
         self.analyzer = QuestionAnalyzer()
         self.interviews = {}  # user_id -> interview_data
-        from ..conversation.openrouter_client import OpenRouterClient
-        self.ai_client = OpenRouterClient()
     
     def start_interview(self, user_id: int):
         """Start a new interview for a user"""
@@ -37,55 +35,6 @@ class InterviewAgent:
             "answers": {}
         }
         return INTRODUCTION
-    
-    def _is_question(self, message: str) -> bool:
-        """Check if user message is a question"""
-        question_indicators = ['؟', '?', 'چیه', 'چیه؟', 'چی', 'چی؟', 'چطور', 'چطور؟', 
-                             'چرا', 'چرا؟', 'کیه', 'کیه؟', 'کی', 'کی؟', 'کجا', 'کجا؟',
-                             'چند', 'چند؟', 'چه', 'چه؟', 'میشه', 'میشه؟', 'می‌شه', 'می‌شه؟']
-        message_lower = message.lower().strip()
-        
-        # Check if ends with question mark
-        if message_lower.endswith('؟') or message_lower.endswith('?'):
-            return True
-        
-        # Check for question indicators
-        for indicator in question_indicators:
-            if indicator in message_lower:
-                return True
-        
-        # Check if message is very short (likely a question)
-        if len(message.strip()) < 20 and any(word in message_lower for word in ['چیه', 'چی', 'چطور', 'چرا']):
-            return True
-        
-        return False
-    
-    def _answer_user_question(self, user_question: str, current_question: str) -> str:
-        """Answer user's question briefly and return to interview"""
-        prompt = f"""تو دانوا هستی، یک دوست صمیمی که با بچه‌ها مصاحبه می‌کنی.
-
-در حال حاضر این سوال مصاحبه رو می‌پرسی:
-{current_question}
-
-کاربر این سوال رو ازت پرسیده:
-{user_question}
-
-لطفاً یک جواب کوتاه و صمیمی (حداکثر 2-3 جمله) به سوال کاربر بده. بعد یادآوری کن که باید به سوال مصاحبه جواب بده.
-
-لحن تو باید:
-- صمیمی و دوستانه باشه
-- برای بچه‌ها قابل فهم باشه
-- کوتاه و مختصر باشه
-- بعد یادآوری کن که باید به سوال مصاحبه برگرده
-
-فقط جواب رو بده، بدون توضیح اضافی."""
-        
-        try:
-            answer = self.ai_client.get_response(prompt)
-            # Add reminder to return to interview
-            return f"{answer}\n\nحالا بذار برگردیم به سوال مصاحبه! 😊"
-        except:
-            return "اوه! متاسفم، الان نمی‌تونم جواب بدم! 😅\n\nولی بذار برگردیم به سوال مصاحبه! 😊"
     
     def process_response(self, user_id: int, user_message: str) -> dict:
         """
@@ -109,42 +58,6 @@ class InterviewAgent:
         
         interview = self.interviews[user_id]
         
-        # Check if user is asking a question (not during name/age collection)
-        if interview["state"] != InterviewState.GETTING_NAME_AGE:
-            if self._is_question(user_message):
-                # Get current question context
-                if interview["state"] == InterviewState.ASKING_QUESTION:
-                    question_index = interview["current_question_index"]
-                    current_question = QUESTIONS[question_index]["question"]
-                elif interview["state"] == InterviewState.FOLLOWING_UP:
-                    question_index = interview["current_question_index"]
-                    current_question = QUESTIONS[question_index]["question"]
-                else:
-                    current_question = "مصاحبه"
-                
-                # Answer the question and remind about interview
-                answer = self._answer_user_question(user_message, current_question)
-                
-                # Return to current interview state
-                if interview["state"] == InterviewState.ASKING_QUESTION:
-                    question_index = interview["current_question_index"]
-                    question_data = QUESTIONS[question_index]
-                    return {
-                        "message": f"{answer}\n\n{question_data['question']}",
-                        "state": InterviewState.ASKING_QUESTION,
-                        "is_complete": False,
-                        "result": None
-                    }
-                elif interview["state"] == InterviewState.FOLLOWING_UP:
-                    question_index = interview["current_question_index"]
-                    question_data = QUESTIONS[question_index]
-                    return {
-                        "message": f"{answer}\n\n{question_data['follow_up']}",
-                        "state": InterviewState.FOLLOWING_UP,
-                        "is_complete": False,
-                        "result": None
-                    }
-        
         # Handle different states
         if interview["state"] == InterviewState.GETTING_NAME_AGE:
             return self._handle_name_age(user_id, user_message)
@@ -166,16 +79,6 @@ class InterviewAgent:
     def _handle_name_age(self, user_id: int, user_message: str) -> dict:
         """Extract name and age from user message"""
         interview = self.interviews[user_id]
-        
-        # Check if user is asking a question
-        if self._is_question(user_message):
-            answer = self._answer_user_question(user_message, "لطفاً نام و سن خودتون رو بهم بدید")
-            return {
-                "message": f"{answer}\n\n{INTRODUCTION}",
-                "state": InterviewState.GETTING_NAME_AGE,
-                "is_complete": False,
-                "result": None
-            }
         
         # Try to extract name and age
         message_lower = user_message.lower()
