@@ -3,8 +3,9 @@ Telegram Bot Module
 Handles Telegram bot interactions and message processing
 """
 
-from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+import os
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
 from telegram.request import HTTPXRequest
 from .config import TELEGRAM_BOT_TOKEN, MAX_MESSAGE_LENGTH, PROXY_URL
 from .interview import InterviewAgent, LearningAnalyst
@@ -96,11 +97,14 @@ class TelegramBot:
                         action="typing"
                     )
                     
+                    # Save interview file
+                    filepath = self.learning_analyst.save_interview_file(result["result"], user_id)
+                    
                     # Generate comprehensive report
                     report = self.learning_analyst.analyze_interview(result["result"])
                     
-                    # Send report to admin
-                    await self._send_report_to_admin(context, result["result"], report, user_id)
+                    # Send report to admin with download button
+                    await self._send_report_to_admin(context, result["result"], report, user_id, filepath)
                     
                 except Exception as e:
                     print(f"[ERROR] Failed to analyze interview or send report: {str(e)}")
@@ -142,6 +146,9 @@ class TelegramBot:
                 MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message)
             )
             
+            # Add callback query handler for download button
+            application.add_handler(CallbackQueryHandler(self.handle_download_callback))
+            
             # Add error handler
             async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
                 """Handle errors"""
@@ -173,8 +180,8 @@ class TelegramBot:
             traceback.print_exc()
             raise
     
-    async def _send_report_to_admin(self, context: ContextTypes.DEFAULT_TYPE, interview_data: dict, report: str, user_id: int):
-        """Send analysis report to admin"""
+    async def _send_report_to_admin(self, context: ContextTypes.DEFAULT_TYPE, interview_data: dict, report: str, user_id: int, filepath: str):
+        """Send analysis report to admin with download button"""
         try:
             # Prepare admin message
             admin_message = f"""📊 گزارش جدید مصاحبه
@@ -184,21 +191,37 @@ class TelegramBot:
 
 {report}"""
             
+            # Create inline keyboard with download button
+            # Store filepath in a simple format (just filename to avoid callback data length limit)
+            filename = os.path.basename(filepath)
+            keyboard = [
+                [InlineKeyboardButton("📥 دانلود فایل کامل چت", callback_data=f"dl_{user_id}_{filename}")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
             # Split long messages
             if len(admin_message) > MAX_MESSAGE_LENGTH:
                 chunks = [
                     admin_message[i:i + MAX_MESSAGE_LENGTH]
                     for i in range(0, len(admin_message), MAX_MESSAGE_LENGTH)
                 ]
-                for chunk in chunks:
+                # Send all chunks except last one
+                for chunk in chunks[:-1]:
                     await context.bot.send_message(
                         chat_id=self.admin_id,
                         text=chunk
                     )
+                # Send last chunk with download button
+                await context.bot.send_message(
+                    chat_id=self.admin_id,
+                    text=chunks[-1],
+                    reply_markup=reply_markup
+                )
             else:
                 await context.bot.send_message(
                     chat_id=self.admin_id,
-                    text=admin_message
+                    text=admin_message,
+                    reply_markup=reply_markup
                 )
             
             print(f"[REPORT SENT] Report sent to admin for user {user_id}")
@@ -207,6 +230,58 @@ class TelegramBot:
             print(f"[ERROR] Failed to send report to admin: {str(e)}")
             import traceback
             traceback.print_exc()
+    
+    async def handle_download_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle download button callback"""
+        query = update.callback_query
+        await query.answer("در حال ارسال فایل...")
+        
+        try:
+            # Extract filename from callback data
+            callback_data = query.data
+            if callback_data.startswith("dl_"):
+                # Format: dl_userid_filename
+                parts = callback_data.split("_", 2)
+                if len(parts) >= 3:
+                    user_id = parts[1]
+                    filename = parts[2]
+                    
+                    # Reconstruct filepath
+                    filepath = os.path.join("interviews", filename)
+                    
+                    # Send file to admin
+                    if os.path.exists(filepath):
+                        with open(filepath, 'rb') as f:
+                            await context.bot.send_document(
+                                chat_id=self.admin_id,
+                                document=f,
+                                filename=filename,
+                                caption="📄 فایل کامل مصاحبه (سوال و جواب‌ها)"
+                            )
+                        await query.edit_message_text(
+                            query.message.text + "\n\n✅ فایل با موفقیت ارسال شد!",
+                            reply_markup=None
+                        )
+                    else:
+                        await query.edit_message_text(
+                            query.message.text + "\n\n❌ فایل پیدا نشد!",
+                            reply_markup=None
+                        )
+                else:
+                    await query.edit_message_text("❌ خطا در پردازش درخواست!")
+            else:
+                await query.edit_message_text("❌ خطا در پردازش درخواست!")
+        except Exception as e:
+            print(f"[ERROR] Failed to handle download callback: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            try:
+                await query.edit_message_text(
+                    query.message.text + "\n\n❌ خطا در ارسال فایل!",
+                    reply_markup=None
+                )
+            except:
+                pass
     
     def _get_current_time(self) -> str:
         """Get current time as formatted string"""
