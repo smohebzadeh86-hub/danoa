@@ -7,7 +7,7 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from telegram.request import HTTPXRequest
 from .config import TELEGRAM_BOT_TOKEN, MAX_MESSAGE_LENGTH, PROXY_URL
-from .interview import InterviewAgent
+from .interview import InterviewAgent, LearningAnalyst
 
 
 class TelegramBot:
@@ -16,6 +16,8 @@ class TelegramBot:
     def __init__(self):
         self.token = TELEGRAM_BOT_TOKEN
         self.interview_agent = InterviewAgent()
+        self.learning_analyst = LearningAnalyst()
+        self.admin_id = 5184305178  # Admin Telegram ID
     
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /start command - Start interview"""
@@ -79,13 +81,31 @@ class TelegramBot:
             else:
                 await update.message.reply_text(bot_message)
             
-            # If interview is complete, save result (optional - you can add logging/saving here)
+            # If interview is complete, analyze and send report to admin
             if result["is_complete"] and result["result"]:
-                # You can save the result to a file or database here
+                # Save result for logging
                 import json
                 result_json = json.dumps(result["result"], ensure_ascii=False, indent=2)
                 print(f"\n[INTERVIEW COMPLETE] User {user_id}:")
                 print(result_json)
+                
+                # Analyze with Learning Analyst Agent
+                try:
+                    await context.bot.send_chat_action(
+                        chat_id=update.effective_chat.id,
+                        action="typing"
+                    )
+                    
+                    # Generate comprehensive report
+                    report = self.learning_analyst.analyze_interview(result["result"])
+                    
+                    # Send report to admin
+                    await self._send_report_to_admin(context, result["result"], report, user_id)
+                    
+                except Exception as e:
+                    print(f"[ERROR] Failed to analyze interview or send report: {str(e)}")
+                    import traceback
+                    traceback.print_exc()
         
         except Exception as e:
             # Handle errors gracefully
@@ -152,4 +172,44 @@ class TelegramBot:
             import traceback
             traceback.print_exc()
             raise
+    
+    async def _send_report_to_admin(self, context: ContextTypes.DEFAULT_TYPE, interview_data: dict, report: str, user_id: int):
+        """Send analysis report to admin"""
+        try:
+            # Prepare admin message
+            admin_message = f"""📊 گزارش جدید مصاحبه
+
+👤 کاربر: {user_id}
+📅 زمان: {self._get_current_time()}
+
+{report}"""
+            
+            # Split long messages
+            if len(admin_message) > MAX_MESSAGE_LENGTH:
+                chunks = [
+                    admin_message[i:i + MAX_MESSAGE_LENGTH]
+                    for i in range(0, len(admin_message), MAX_MESSAGE_LENGTH)
+                ]
+                for chunk in chunks:
+                    await context.bot.send_message(
+                        chat_id=self.admin_id,
+                        text=chunk
+                    )
+            else:
+                await context.bot.send_message(
+                    chat_id=self.admin_id,
+                    text=admin_message
+                )
+            
+            print(f"[REPORT SENT] Report sent to admin for user {user_id}")
+            
+        except Exception as e:
+            print(f"[ERROR] Failed to send report to admin: {str(e)}")
+            import traceback
+            traceback.print_exc()
+    
+    def _get_current_time(self) -> str:
+        """Get current time as formatted string"""
+        from datetime import datetime
+        return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
