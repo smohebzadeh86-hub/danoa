@@ -100,8 +100,13 @@ class TelegramBot:
                     # Save interview file
                     filepath = self.learning_analyst.save_interview_file(result["result"], user_id)
                     
-                    # Generate comprehensive report
-                    report = self.learning_analyst.analyze_interview(result["result"])
+                    # Get conversation history from interview agent
+                    conversation_history = None
+                    if hasattr(self.interview_agent, 'interviews') and user_id in self.interview_agent.interviews:
+                        conversation_history = self.interview_agent.interviews[user_id].get("conversation_history", [])
+                    
+                    # Generate comprehensive report with full conversation history
+                    report = self.learning_analyst.analyze_interview(result["result"], conversation_history=conversation_history)
                     
                     # Send report to admin with download button
                     await self._send_report_to_admin(context, result["result"], report, user_id, filepath)

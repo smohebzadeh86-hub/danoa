@@ -7,8 +7,8 @@ Contains all API keys and configuration settings
 TELEGRAM_BOT_TOKEN = "8277682636:AAECGOsy9rhJHLTaPlQIgX2gdJbZZxrSGic"
 
 # OpenRouter API Configuration
-OPENROUTER_API_KEY = "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"
-OPENROUTER_MODEL = "google/gemini-2.0-flash-exp:free"
+OPENROUTER_API_KEY = "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"
+OPENROUTER_MODEL = "google/gemini-2.0-flash-lite-001"
 OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
 
 # Bot Settings

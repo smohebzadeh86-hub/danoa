@@ -94,12 +94,48 @@ class OpenRouterClient:
                     else:
                         return "⏳ متاسفم، در حال حاضر تعداد درخواست‌های زیادی ارسال شده است. لطفاً چند لحظه صبر کنید و دوباره تلاش کنید."
                 
+                # Handle authentication error (401)
+                if response.status_code == 401:
+                    print(f"[API ERROR] 401 Unauthorized - API Key may be invalid")
+                    print(f"[API ERROR] Response: {response.text[:500]}")
+                    return "❌ خطا در احراز هویت API. لطفاً کلید API را بررسی کنید."
+                
                 # Check if request was successful
-                response.raise_for_status()
+                if response.status_code != 200:
+                    print(f"[API ERROR] Status code: {response.status_code}")
+                    print(f"[API ERROR] Response: {response.text[:500]}")
+                    response.raise_for_status()
                 
                 # Extract and return the AI response
                 data = response.json()
+                
+                # Check if response has expected structure
+                if "choices" not in data or len(data["choices"]) == 0:
+                    print(f"[API ERROR] Invalid response structure: {data}")
+                    if attempt < max_retries - 1:
+                        time.sleep(retry_delay)
+                        continue
+                    else:
+                        return "⚠️ خطا در دریافت پاسخ از API. لطفاً دوباره تلاش کنید."
+                
+                if "message" not in data["choices"][0] or "content" not in data["choices"][0]["message"]:
+                    print(f"[API ERROR] Invalid response structure: {data}")
+                    if attempt < max_retries - 1:
+                        time.sleep(retry_delay)
+                        continue
+                    else:
+                        return "⚠️ خطا در دریافت پاسخ از API. لطفاً دوباره تلاش کنید."
+                
                 ai_response = data["choices"][0]["message"]["content"]
+                
+                # Check if response is empty
+                if not ai_response or not ai_response.strip():
+                    print(f"[API ERROR] Empty response from API")
+                    if attempt < max_retries - 1:
+                        time.sleep(retry_delay)
+                        continue
+                    else:
+                        return "⚠️ پاسخ خالی از API دریافت شد. لطفاً دوباره تلاش کنید."
                 
                 # Update last request time
                 self.last_request_time = time.time()
@@ -121,7 +157,14 @@ class OpenRouterClient:
                     else:
                         return "⏳ در حال حاضر تعداد درخواست‌های زیادی ارسال شده است. لطفاً چند دقیقه صبر کنید و دوباره تلاش کنید."
                 elif e.response.status_code == 401:
-                    return "❌ خطا در احراز هویت API. لطفاً کلید API را بررسی کنید."
+                    error_detail = ""
+                    try:
+                        error_data = e.response.json()
+                        error_detail = f" - {error_data.get('error', {}).get('message', '')}"
+                    except:
+                        pass
+                    print(f"[ERROR] API 401 Error: {e.response.text}")
+                    return f"❌ خطا در احراز هویت API. لطفاً کلید API را بررسی کنید.{error_detail}"
                 elif e.response.status_code == 402:
                     return "💰 موجودی حساب شما کافی نیست. لطفاً حساب OpenRouter خود را بررسی کنید."
                 else:
